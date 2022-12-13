@@ -1,0 +1,24 @@
+POST http://localhost:3001/login/
+Content-Type: application/json
+
+{
+  "username":"JoeBiden",
+  "password":"biden@123"
+}
+###
+
+Get http://localhost:3001/user/tweets/feed/?limit=4&offset=0
+Authorization: bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6IkpvZUJpZGVuIiwiaWF0IjoxNjYxMDc4ODExfQ.IORFeOFDiV58saV1tjKj1qz9TzNEhFM8LiMQNt19pD0
+###
+
+GET http://localhost:3001/user/following/?userId=1
+Authorization: bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6IkpvZUJpZGVuIiwiaWF0IjoxNjYxMDc4ODExfQ.IORFeOFDiV58saV1tjKj1qz9TzNEhFM8LiMQNt19pD0
+###
+
+POST http://localhost:3000/user/tweets/
+Authorization: bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6IkpvZUJpZGVuIiwiaWF0IjoxNjYxMDc4ODExfQ.IORFeOFDiV58saV1tjKj1qz9TzNEhFM8LiMQNt19pD0
+Content-Type: application/json
+
+{
+   "tweet": "The Mornings..."
+}
