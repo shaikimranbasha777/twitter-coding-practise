@@ -21,7 +21,7 @@ const initializeDbAndServer = async () => {
     });
 
     app.listen(3001, () =>
-      console.log("Server Running at http://localhost:3000/")
+      console.log("Server Running at http://localhost:3001/")
     );
   } catch (error) {
     console.log(`DB Error: ${error.message}`);
@@ -109,44 +109,55 @@ app.post("/login/", async (request, response) => {
 });
 
 app.get("/user/tweets/feed/", authentication, async (request, response) => {
-  const { search_q = "", limit, offset, desc } = request.query;
-  const { username, userId } = request.body;
+  //const { search_q = "", limit, offset, desc } = request.query;
+  const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+  const userId = await database.get(getLoggedInUserId);
   const getTweetsQuery = `
     SELECT
-        username, tweet, date_time
+        username, tweet, date_time AS dateTime
     FROM
-        user Natural Join tweet AS T NATURAL JOIN follower
-    WHERE
-        follower_user_id = ${userId}
+        (user INNER Join tweet ON user.user_id = tweet.user_id) AS new INNER JOIN follower ON new.user_id = follower.follower_id
+     WHERE
+        follower_user_id = ${userId.user_id}
+    ORDER BY
+        date_time DESC
     LIMIT 
-        ${limit} 
-    ORDERBY 
-        ${desc}
+        4
     OFFSET 
-        ${offset};`;
-  const tweets = await database.get(getTweetsQuery);
+        0;`;
+  const tweets = await database.all(getTweetsQuery);
   response.send(tweets);
 });
 
 app.get("/user/following/", authentication, async (request, response) => {
-  const { userId } = request.query;
+  //const { userId } = request.params;
+
+  const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+  const userId = await database.get(getLoggedInUserId);
+  console.log(userId.user_id);
+
   const getFollowingUserNamesQuery = `
     SELECT
         name
     FROM
         user INNER JOIN follower ON user.user_id = follower.follower_id
     WHERE
-        following_user_id = ${userId}`;
+        following_user_id = ${userId.user_id}`;
   const following = await database.all(getFollowingUserNamesQuery);
   response.send(following);
 });
 
 app.get("/user/followers/", authentication, async (request, response) => {
+  const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+  const userId = await database.get(getLoggedInUserId);
+
   const getFollowersNamesQuery = `
     SELECT 
         name
     FROM
-        user`;
+        user INNER JOIN follower ON user.user_id = follower.follower_id
+    WHERE
+        follower_user_id = ${userId[0].user_id}`;
   const followers = await database.all(getFollowersNamesQuery);
   response.send(followers);
 });
@@ -158,23 +169,45 @@ app.get("/user/", async (request, response) => {
 });
 
 app.get("/tweets/:tweetId/", authentication, async (request, response) => {
+  const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+  const userId = await database.get(getLoggedInUserId);
+
+  const getFollowingUserTweetId = `SELECT tweet_id FROM (user INNER JOIN tweet ON user.user_id = tweet.user_id) AS new INNER JOIN follower ON new.user_id = follower.follower_id WHERE follower_user_id = ${userId.user_id}`;
+  const tweetIdUser = await database.all(getFollowingUserTweetId);
+  console.log(tweetIdUser.map((each) => each.tweet_id));
+  const tweetIdArray = tweetIdUser.map((each) => each.tweet_id);
+
   const { tweetId } = request.params;
-  if (tweetId === undefined) {
-    response.status(401);
-    response.send("Invalid Request");
-  } else {
+  console.log(typeof tweetId);
+
+  console.log(tweetIdArray.includes(tweetId));
+  if (tweetIdArray.includes(parseInt(tweetId))) {
+    const getLikesQuery = `SELECT * FROM like WHERE tweet_id = ${tweetId}`;
+    const likes = await database.all(getLikesQuery);
+
+    const getReplyQuery = `SELECT * FROM reply WHERE tweet_id = ${tweetId}`;
+    const replies = await database.all(getReplyQuery);
+
+    console.log(likes.length);
+
     const getTweetsAndLikesQuery = `
         SELECT
-            tweet, 
-            COUNT(like_id) AS likes,
-            COUNT(reply) AS replies,
-            date_time AS dateTime
+            tweet, date_time
         FROM
-            (tweet NATURAL JOIN reply) AS T NATURAL JOIN like
+            tweet
         WHERE 
             tweet_id = ${tweetId}`;
-    const tweets = await database.all(getTweetsAndLikesQuery);
-    response.send(tweets);
+    const tweets = await database.get(getTweetsAndLikesQuery);
+    console.log(tweets);
+    response.send({
+      tweet: tweets.tweet,
+      likes: likes.length,
+      replies: replies.length,
+      dateTime: tweets.date_time,
+    });
+  } else {
+    response.status(401);
+    response.send("Invalid Request");
   }
 });
 
@@ -182,20 +215,29 @@ app.get(
   "/tweets/:tweetId/likes/",
   authentication,
   async (request, response) => {
+    const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+    const userId = await database.get(getLoggedInUserId);
     const { tweetId } = request.params;
-    if (tweetId === undefined) {
-      response.status(401);
-      response.send("Invalid Request");
-    } else {
+
+    const getFollowingUserTweetId = `SELECT tweet_id FROM (user INNER JOIN tweet ON user.user_id = tweet.user_id) AS new INNER JOIN follower ON new.user_id = follower.follower_id WHERE follower_user_id = ${userId.user_id}`;
+    const tweetIdUser = await database.all(getFollowingUserTweetId);
+    // console.log(tweetIdUser.map((each) => each.tweet_id));
+    //console.log(tweetIdArray);
+    const tweetIdArray = tweetIdUser.map((each) => parseInt(each.tweet_id));
+
+    if (tweetIdArray.includes(parseInt(tweetId))) {
       const getLikedUsersQuery = `
         SELECT
             username
         FROM
-            user NATURAL JOIN like
-        WHERE 
+            user Natural Join like
+        WHERE
             tweet_id = ${tweetId}`;
       const usernames = await database.all(getLikedUsersQuery);
       response.send({ likes: usernames });
+    } else {
+      response.status(401);
+      response.send("Invalid Request");
     }
   }
 );
@@ -204,11 +246,16 @@ app.get(
   "/tweets/:tweetId/replies/",
   authentication,
   async (request, response) => {
+    const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+    const userId = await database.get(getLoggedInUserId);
     const { tweetId } = request.params;
-    if (tweetId === undefined) {
-      response.status(401);
-      response.send("Invalid Request");
-    } else {
+
+    const getFollowingUserTweetId = `SELECT tweet_id FROM (user INNER JOIN tweet ON user.user_id = tweet.user_id) AS new INNER JOIN follower ON new.user_id = follower.follower_id WHERE follower_user_id = ${userId.user_id}`;
+    const tweetIdUser = await database.all(getFollowingUserTweetId);
+    // console.log(tweetIdUser.map((each) => parseInt(each.tweet_id)));
+    const tweetIdArray = tweetIdUser.map((each) => parseInt(each.tweet_id));
+
+    if (tweetIdArray.includes(parseInt(tweetId))) {
       const getReplyUsersQuery = `
         SELECT
             name, reply
@@ -218,21 +265,35 @@ app.get(
             tweet_id = ${tweetId}`;
       const userReplies = await database.all(getReplyUsersQuery);
       response.send({ replies: userReplies });
+    } else {
+      response.status(401);
+      response.send("Invalid Request");
     }
   }
 );
 
 app.get("/user/tweets/", authentication, async (request, response) => {
-  const getUserTweetsQuery = `
-    SELECT
-            tweet, 
-            COUNT(like_id) AS likes,
-            COUNT(reply) AS replies,
-            date_time AS dateTime
-        FROM
-            (tweet NATURAL JOIN reply) AS T NATURAL JOIN like`;
-  const tweets = await database.all(getUserTweetsQuery);
-  response.send(tweets);
+  const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+  const userId = await database.get(getLoggedInUserId);
+
+  const getTweetQuery = `SELECT tweet, date_time, tweet_id FROM tweet WHERE user_id = ${userId.user_id}`;
+  const userTweets = await database.all(getTweetQuery);
+
+  //const getTweetIdQuery = `SELECT tweet_id FROM tweet`
+  console.log(userTweets.map((each) => each.tweet_id));
+  const getLikesQuery = `SELECT * FROM like WHERE tweet_id = ${
+    userTweets.map((each) => each.tweet_id)[1]
+  }`;
+  const likes = await database.all(getLikesQuery);
+  console.log(likes);
+  const getReplyQuery = `SELECT * FROM reply WHERE tweet_id = ${
+    userTweets.map((each) => each.tweet_id)[1]
+  }`;
+  const replies = await database.all(getReplyQuery);
+  console.log(replies);
+  const getDateTimeQuery = `SELECT * FROM user WHERE user_id = ${userId.user_id}`;
+  const dateTime = await database.all(getDateTimeQuery);
+  //response.send(tweets);
 });
 
 app.post("/user/tweets/", authentication, async (request, response) => {
@@ -249,6 +310,14 @@ app.post("/user/tweets/", authentication, async (request, response) => {
 });
 
 app.delete("/tweets/:tweetId/", authentication, async (request, response) => {
+  const getLoggedInUserId = `SELECT user_id FROM user WHERE username = '${request.username}'`;
+  const userId = await database.get(getLoggedInUserId);
+
+  const getFollowingUserTweetId = `SELECT tweet_id FROM (user INNER JOIN tweet ON user.user_id = tweet.user_id) AS new INNER JOIN follower ON new.user_id = follower.follower_id WHERE follower_user_id = ${userId.user_id}`;
+  const tweetIdUser = await database.all(getFollowingUserTweetId);
+  // console.log(tweetIdUser.map((each) => parseInt(each.tweet_id)));
+  const tweetIdArray = tweetIdUser.map((each) => parseInt(each.tweet_id));
+
   const { tweetId } = request.params;
   if (tweetId === undefined) {
     response.status(401);
